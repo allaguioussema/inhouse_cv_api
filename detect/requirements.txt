@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+opencv-python
+Pillow
+torch
+ultralytics
+paddleocr
+onnxruntime
+numpy
+langdetect
