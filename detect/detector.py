@@ -7,9 +7,12 @@ class YoloDetector:
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.models = {}
 
+        # Get the directory where this file is located
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        
         model_paths = {
-            "nutrition": "models/best NUT.pt",
-            "ingredient": "models/best ING.pt"
+            "nutrition": os.path.join(current_dir, "models", "best NUT.pt"),
+            "ingredient": os.path.join(current_dir, "models", "best ING.pt")
         }
 
         for key, path in model_paths.items():
