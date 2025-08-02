@@ -5,6 +5,45 @@ from paddleocr import PaddleOCR
 from typing import List, Dict, Any
 import re
 
+# Import analyze module for LLM analysis with proper error handling
+import sys
+import os
+
+# Add the parent directory to the path to import analyze module
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+
+# Try to import analyze module with fallback
+try:
+    from analyze.analyzer import analyze_ingredients, summarize_nutrition, analyze_food_package_comprehensive, detect_food_content_type, detect_food_content_type_fallback
+    from analyze.llm_prompter import prompt_llm, Language
+    ANALYZE_MODULE_AVAILABLE = True
+    print("✅ Analyze module imported successfully")
+except ImportError as e:
+    print(f"⚠️ Analyze module not available: {e}")
+    ANALYZE_MODULE_AVAILABLE = False
+    # Create fallback functions
+    def analyze_ingredients(text: str, language=None):
+        return {"error": "Analyze module not available", "fallback": True}
+    
+    def summarize_nutrition(text: str, language=None):
+        return {"error": "Analyze module not available", "fallback": True}
+    
+    def analyze_food_package_comprehensive(text: str, detection_type: str):
+        return {"error": "Analyze module not available", "fallback": True}
+    
+    def detect_food_content_type(text: str):
+        return {"content_type": "unknown", "confidence": 0.0, "fallback": True}
+    
+    def detect_food_content_type_fallback(text: str):
+        return {"content_type": "unknown", "confidence": 0.0, "fallback": True}
+    
+    def prompt_llm(prompt: str, language=None):
+        return "Analyze module not available"
+    
+    class Language:
+        ENGLISH = "en"
+        FRENCH = "fr"
+
 # Try to import langdetect, but provide fallback if not available
 try:
     import langdetect
@@ -15,7 +54,7 @@ except ImportError:
 
 detector = YoloDetector()
 
-# Initialize OCR models for different languages
+# Initialize OCR models for different languages with performance optimizations
 ocr_models = {
     'en': PaddleOCR(use_angle_cls=True, lang='en'),
     'fr': PaddleOCR(use_angle_cls=True, lang='fr'),
@@ -23,6 +62,26 @@ ocr_models = {
     'de': PaddleOCR(use_angle_cls=True, lang='german'),
     'it': PaddleOCR(use_angle_cls=True, lang='it')
 }
+
+# Cache for OCR results to avoid re-processing same images
+ocr_cache = {}
+
+def clear_ocr_cache():
+    """
+    Clear the OCR cache to free memory
+    """
+    global ocr_cache
+    ocr_cache.clear()
+    print("🧹 OCR cache cleared")
+
+def get_ocr_cache_stats():
+    """
+    Get statistics about the OCR cache
+    """
+    return {
+        'cache_size': len(ocr_cache),
+        'cache_keys': list(ocr_cache.keys())[:10]  # First 10 keys for debugging
+    }
 
 def detect_language_simple(text: str) -> str:
     """
@@ -84,10 +143,20 @@ def detect_language(text: str) -> str:
 
 def run_ocr(image, preferred_lang: str = None) -> Dict[str, Any]:
     """
-    Run OCR with multi-language support
+    Enhanced OCR with multi-language support and performance optimizations
     """
-    print(f"🔍 Starting OCR with preferred_lang={preferred_lang}")
+    print(f"🔍 Starting enhanced OCR with preferred_lang={preferred_lang}")
     print(f"📦 Input image shape: {image.shape}")
+    
+    # Create a simple hash for caching (basic implementation)
+    import hashlib
+    image_hash = hashlib.md5(image.tobytes()).hexdigest()
+    cache_key = f"{image_hash}_{preferred_lang}"
+    
+    # Check cache first
+    if cache_key in ocr_cache:
+        print(f"✅ Using cached OCR result for {preferred_lang}")
+        return ocr_cache[cache_key]
     
     results = {}
     
@@ -106,6 +175,10 @@ def run_ocr(image, preferred_lang: str = None) -> Dict[str, Any]:
                 if 'rec_texts' in ocr_result and ocr_result['rec_texts']:
                     text = " ".join(ocr_result['rec_texts'])
                     confidence = sum(ocr_result['rec_scores']) / len(ocr_result['rec_scores']) if ocr_result['rec_scores'] else 0.8
+                    
+                    # Enhanced text cleaning
+                    text = clean_ocr_text(text)
+                    
                     results[preferred_lang] = {
                         'text': text,
                         'confidence': confidence
@@ -133,6 +206,10 @@ def run_ocr(image, preferred_lang: str = None) -> Dict[str, Any]:
                 if 'rec_texts' in ocr_result and ocr_result['rec_texts']:
                     text = " ".join(ocr_result['rec_texts'])
                     confidence = sum(ocr_result['rec_scores']) / len(ocr_result['rec_scores']) if ocr_result['rec_scores'] else 0.8
+                    
+                    # Enhanced text cleaning
+                    text = clean_ocr_text(text)
+                    
                     results['en'] = {
                         'text': text,
                         'confidence': confidence
@@ -162,6 +239,10 @@ def run_ocr(image, preferred_lang: str = None) -> Dict[str, Any]:
                         if 'rec_texts' in ocr_result and ocr_result['rec_texts']:
                             text = " ".join(ocr_result['rec_texts'])
                             confidence = sum(ocr_result['rec_scores']) / len(ocr_result['rec_scores']) if ocr_result['rec_scores'] else 0.8
+                            
+                            # Enhanced text cleaning
+                            text = clean_ocr_text(text)
+                            
                             results[lang] = {
                                 'text': text,
                                 'confidence': confidence
@@ -188,24 +269,198 @@ def run_ocr(image, preferred_lang: str = None) -> Dict[str, Any]:
             'ocr_model_used': best_lang
         }
         print(f"✅ Final OCR result: {final_result}")
+        
+        # Cache the result
+        ocr_cache[cache_key] = final_result
+        
         return final_result
     
     print(f"❌ No OCR results found")
-    return {
+    empty_result = {
         'text': '',
         'confidence': 0.0,
         'language': 'en',
         'ocr_model_used': 'none'
     }
+    
+    # Cache the empty result too
+    ocr_cache[cache_key] = empty_result
+    
+    return empty_result
 
-def process_image(image, preferred_language: str = None, detection_mode: str = "both"):
+def clean_ocr_text(text: str) -> str:
     """
-    Process image with multi-language OCR support and smart confidence boosting
+    Clean and enhance OCR text for better keyword matching
+    """
+    if not text:
+        return ""
+    
+    # Remove common OCR artifacts
+    text = text.replace('|', 'I')  # Common OCR mistake
+    text = text.replace('0', 'O')  # Common OCR mistake in certain contexts
+    text = text.replace('1', 'I')  # Common OCR mistake
+    
+    # Remove extra whitespace
+    text = ' '.join(text.split())
+    
+    # Fix common OCR errors in nutrition/ingredient context
+    nutrition_fixes = {
+        'calorles': 'calories',
+        'proteln': 'protein',
+        'carbohydrate': 'carbohydrate',
+        'fat': 'fat',
+        'sodlum': 'sodium',
+        'fiber': 'fiber',
+        'sugar': 'sugar',
+        'cholesterol': 'cholesterol',
+        'vitamin': 'vitamin',
+        'mineral': 'mineral'
+    }
+    
+    for wrong, correct in nutrition_fixes.items():
+        text = text.replace(wrong, correct)
+    
+    return text
+
+def analyze_ocr_with_llm(ocr_text: str, detection_type: str, use_llm: bool = True, preferred_language: str = None) -> Dict[str, Any]:
+    """
+    Enhanced OCR analysis using smart LLM with content type detection and comprehensive analysis
+    
+    Args:
+        ocr_text: Text extracted from OCR
+        detection_type: "ingredient" or "nutrition"
+        use_llm: Whether to use LLM analysis (can be disabled for performance)
+        preferred_language: Preferred language for analysis (en, fr, etc.)
+    
+    Returns:
+        Dictionary with comprehensive analysis results
+    """
+    if not use_llm or not ocr_text.strip():
+        return {
+            "llm_analysis": False,
+            "reason": "LLM disabled or no text to analyze"
+        }
+    
+    # Check if analyze module is available
+    if not ANALYZE_MODULE_AVAILABLE:
+        return {
+            "llm_analysis": False,
+            "reason": "Analyze module not available",
+            "fallback_analysis": extract_simple_keywords(ocr_text)
+        }
+    
+    try:
+        print(f"🤖 Starting enhanced LLM analysis for {detection_type} text...")
+        
+        # Detect language if not provided
+        if not preferred_language:
+            detected_lang = detect_language(ocr_text)
+            preferred_language = detected_lang
+            print(f"🌍 Detected language: {preferred_language}")
+        
+        # Set language for analysis
+        if preferred_language == "fr":
+            language = Language.FRENCH
+        else:
+            language = Language.ENGLISH
+        
+        # First, detect the actual content type of the text
+        try:
+            content_type_result = detect_food_content_type(ocr_text)
+            print(f"🔍 Content type detection: {content_type_result.get('content_type', 'unknown')} (confidence: {content_type_result.get('confidence', 0):.2f})")
+        except Exception as e:
+            print(f"⚠️ LLM content type detection failed, using fallback: {e}")
+            content_type_result = detect_food_content_type_fallback(ocr_text)
+            print(f"🔍 Fallback content type detection: {content_type_result.get('content_type', 'unknown')} (confidence: {content_type_result.get('confidence', 0):.2f})")
+        
+        # Use comprehensive analysis that adapts to content type
+        if detection_type == "ingredient":
+            # Analyze ingredients with enhanced capabilities
+            analysis_result = analyze_ingredients(ocr_text, language)
+            analysis_result["analysis_type"] = "enhanced_ingredient_analysis"
+            
+        elif detection_type == "nutrition":
+            # Analyze nutrition with enhanced capabilities
+            analysis_result = summarize_nutrition(ocr_text, language)
+            analysis_result["analysis_type"] = "enhanced_nutrition_analysis"
+            
+        else:
+            # Use comprehensive analysis that adapts to content
+            analysis_result = analyze_food_package_comprehensive(ocr_text, detection_type)
+            analysis_result["analysis_type"] = "comprehensive_analysis"
+        
+        # Add metadata and content type information
+        analysis_result["llm_analysis"] = True
+        analysis_result["text_length"] = len(ocr_text)
+        analysis_result["detection_type"] = detection_type
+        analysis_result["content_type_detection"] = content_type_result
+        analysis_result["preferred_language"] = preferred_language
+        analysis_result["analyze_module_available"] = True
+        
+        # Add confidence scoring based on content type match
+        if content_type_result.get('content_type') == detection_type:
+            analysis_result["content_type_match"] = True
+            analysis_result["content_type_confidence"] = content_type_result.get('confidence', 0)
+        else:
+            analysis_result["content_type_match"] = False
+            analysis_result["content_type_confidence"] = content_type_result.get('confidence', 0)
+            print(f"⚠️  Content type mismatch: Detected as {detection_type} but LLM classified as {content_type_result.get('content_type')}")
+        
+        print(f"✅ Enhanced LLM analysis completed for {detection_type} in {preferred_language}")
+        return analysis_result
+        
+    except Exception as e:
+        print(f"❌ Enhanced LLM analysis failed: {e}")
+        # Use fallback analysis
+        fallback_content = detect_food_content_type_fallback(ocr_text)
+        fallback_keywords = extract_simple_keywords(ocr_text)
+        
+        return {
+            "llm_analysis": False,
+            "error": str(e),
+            "detection_type": detection_type,
+            "preferred_language": preferred_language,
+            "analyze_module_available": ANALYZE_MODULE_AVAILABLE,
+            "fallback_analysis": {
+                "text_length": len(ocr_text),
+                "simple_keywords": fallback_keywords,
+                "content_type_detection": fallback_content
+            },
+            "content_type_detection": fallback_content,
+            "analysis_type": "fallback_analysis"
+        }
+
+def extract_simple_keywords(text: str) -> Dict[str, Any]:
+    """
+    Fallback keyword extraction when LLM analysis fails
+    """
+    text_lower = text.lower()
+    
+    # Simple keyword detection
+    allergens = ["milk", "wheat", "soy", "egg", "nuts", "gluten", "peanut", "almond", "walnut", "sesame"]
+    additives = ["preservative", "color", "flavor", "stabilizer", "emulsifier", "xanthan", "gum"]
+    nutrition = ["calories", "protein", "fat", "carbohydrate", "sugar", "salt", "fiber"]
+    
+    found_allergens = [word for word in allergens if word in text_lower]
+    found_additives = [word for word in additives if word in text_lower]
+    found_nutrition = [word for word in nutrition if word in text_lower]
+    
+    return {
+        "allergens": found_allergens,
+        "additives": found_additives,
+        "nutrition_keywords": found_nutrition,
+        "analysis_method": "simple_keyword_extraction"
+    }
+
+def process_image(image, preferred_language: str = None, detection_mode: str = "both", use_llm: bool = True):
+    """
+    Process image with multi-language OCR support, smart confidence boosting, and LLM analysis
     
     Args:
         image: Input image
         preferred_language: Preferred language for OCR ('en', 'es', 'fr', 'de', 'it')
         detection_mode: Detection mode ('both', 'ingredients', 'nutrition')
+        use_llm: Whether to use LLM analysis after OCR (default: True)
     """
     # Run detection based on mode
     if detection_mode == "ingredients":
@@ -252,6 +507,12 @@ def process_image(image, preferred_language: str = None, detection_mode: str = "
         box['ocr_confidence'] = ocr_result['confidence']
         box['ocr_language'] = ocr_result['language']
         print(f"🔍 Ingredient box {i} OCR: {ocr_result['language']} - '{ocr_result['text'][:50]}...'")
+        
+        # Perform LLM analysis on ingredient text
+        if use_llm and ocr_result['text'].strip():
+            llm_analysis = analyze_ocr_with_llm(ocr_result['text'], "ingredient", use_llm, preferred_language)
+            box['llm_analysis'] = llm_analysis
+            print(f"🤖 LLM analysis for ingredient box {i}: {llm_analysis.get('analysis_type', 'unknown')}")
 
     # Process nutrition boxes
     for i, box in enumerate(nutr_boxes):
@@ -278,6 +539,12 @@ def process_image(image, preferred_language: str = None, detection_mode: str = "
         box['ocr_confidence'] = ocr_result['confidence']
         box['ocr_language'] = ocr_result['language']
         print(f"🔍 Nutrition box {i} OCR: {ocr_result['language']} - '{ocr_result['text'][:50]}...'")
+        
+        # Perform LLM analysis on nutrition text
+        if use_llm and ocr_result['text'].strip():
+            llm_analysis = analyze_ocr_with_llm(ocr_result['text'], "nutrition", use_llm, preferred_language)
+            box['llm_analysis'] = llm_analysis
+            print(f"🤖 LLM analysis for nutrition box {i}: {llm_analysis.get('analysis_type', 'unknown')}")
 
     # Apply smart confidence boosting with +/- logic using OCR text from each box
     if ingr_boxes or nutr_boxes:
@@ -289,5 +556,6 @@ def process_image(image, preferred_language: str = None, detection_mode: str = "
         "ingredient_blocks": ingr_boxes,
         "nutrition_tables": nutr_boxes,
         "annotated_image": encode_base64(vis),
-        "detection_mode": detection_mode
+        "detection_mode": detection_mode,
+        "llm_analysis_enabled": use_llm
     }

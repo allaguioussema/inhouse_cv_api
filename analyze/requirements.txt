@@ -1,0 +1,36 @@
+# FastAPI and server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# HTTP requests for Ollama
+requests==2.31.0
+
+# LangChain for better LLM management
+langchain==0.1.0
+langchain-community==0.0.10
+langchain-core==0.1.10
+langchain-ollama==0.0.1
+
+# Free LLM providers
+langchain-huggingface==0.0.6
+langchain-fireworks==0.0.1
+langchain-together==0.0.1
+
+# Data processing
+python-multipart==0.0.6
+
+# Logging and utilities
+python-json-logger==2.0.7
+
+# Optional: For better JSON handling
+orjson==3.9.10
+
+# Multilingual support
+googletrans==4.0.0rc1
+polyglot==22.7.4
+
+# Development dependencies
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2 

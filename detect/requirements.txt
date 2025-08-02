@@ -1,7 +1,10 @@
+# FastAPI and server
 fastapi
 uvicorn
 pydantic
 python-multipart
+
+# Computer Vision
 opencv-python
 Pillow
 torch
@@ -9,4 +12,37 @@ ultralytics
 paddleocr
 onnxruntime
 numpy
+
+# Language detection
 langdetect
+
+# HTTP requests for Ollama
+requests
+
+# LangChain for better LLM management
+langchain
+langchain-community
+langchain-core
+langchain-ollama
+
+# Free LLM providers
+langchain-huggingface
+langchain-fireworks
+langchain-together
+
+# Data processing
+python-multipart
+
+# Logging and utilities
+python-json-logger
+
+# Optional: For better JSON handling
+orjson
+
+# Multilingual support
+googletrans
+
+# Development dependencies
+pytest
+pytest-asyncio
+httpx
